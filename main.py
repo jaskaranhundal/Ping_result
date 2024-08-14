@@ -1,7 +1,7 @@
 import requests,ssl,socket, time,sqlite3,platform, concurrent.futures, subprocess, re, threading
 from datetime import datetime
 # Configuration
-url = 'https://google.com'  # Replace with the target URL
+urls = ['http://github.com','https://github.com' ] # Replace with the target URL
 hostname = 'google.com'  # Replace with the target hostname
 request_interval = 2  # Time between requests in seconds
 measurement_duration = 10  # Total duration to measure MTBF in seconds (e.g., 3600 seconds = 1 hour)
@@ -89,24 +89,25 @@ def save_mtbf_result(url, mtbf, failures):
 
 
 # Function to check if HSTS is enabled
-def check_hsts(url):
+def check_hsts(urls):
     global stop_thread
     while not stop_thread:
         print(datetime.now())
-        try:
-            response = requests.get(url)
-            if 'Strict-Transport-Security' in response.headers:
-                status = "1"
-                header = response.headers['Strict-Transport-Security']
-                print(f"HSTS is enabled. Header: {header}")
-            else:
-                status = "0"
-                header = None
-                print("HSTS is not enabled.")
-            save_hsts_result(url, status, header)
-        except requests.RequestException as e:
-            print(f"Request failed: {e}")
-            save_hsts_result(url, "error", str(e))
+        for url in urls:
+            try:
+                response = requests.get(url)
+                if 'Strict-Transport-Security' in response.headers:
+                    status = "1"
+                    header = response.headers['Strict-Transport-Security']
+                    print(f"HSTS is enabled for {url}. Header: {header}")
+                else:
+                    status = "0"
+                    header = None
+                    print(f"HSTS is not enabled for {url}.")
+                save_hsts_result(url, status, header)
+            except requests.RequestException as e:
+                print(f"Request failed for {url}: {e}")
+                save_hsts_result(url, "error", str(e))
         time.sleep(10)
 
 
@@ -173,29 +174,30 @@ def mtbf():
     global stop_thread
     while not stop_thread:
         print(datetime.now())
-        failure_times = []
-        start_time = time.time()
-        end_time = start_time + measurement_duration
-        while time.time() < end_time:
-            if not send_request(url):
-                failure_times.append(time.time())
-                print(f"Failure detected at {datetime.fromtimestamp(failure_times[-1])}")
-            time.sleep(request_interval)
+        for url in urls:
+            failure_times = []
+            start_time = time.time()
+            end_time = start_time + measurement_duration
+            while time.time() < end_time:
+                if not send_request(url):
+                    failure_times.append(time.time())
+                    print(f"Failure detected at {datetime.fromtimestamp(failure_times[-1])}")
+                time.sleep(request_interval)
 
-        if failure_times:
-            mtbf = calculate_mtbf(failure_times)
-            failures = len(failure_times)
-            if mtbf is not None:
-                # failures = len(failure_times)
-                print(f"Mean Time Between Failures (MTBF): {mtbf:.2f} seconds")
-                save_mtbf_result(url, mtbf, failures)
+            if failure_times:
+                mtbf = calculate_mtbf(failure_times)
+                failures = len(failure_times)
+                if mtbf is not None:
+                    print(f"Mean Time Between Failures (MTBF) for {url}: {mtbf:.2f} seconds")
+                    save_mtbf_result(url, mtbf, failures)
+                else:
+                    print(f"Not enough failure data to calculate MTBF for {url}.")
+                    save_mtbf_result(url, 0, failures)
             else:
-                print("Not enough failure data to calculate MTBF.")
-                save_mtbf_result(url, 0, failures)
-        else:
-            print("No failures occurred during the measurement period.")
-            save_mtbf_result(url, 0, 0)
-        time.sleep(3601)
+                print(f"No failures occurred during the measurement period for {url}.")
+                save_mtbf_result(url, 0, 0)
+        time.sleep(10)
+
 
 
 #### ping process start
@@ -254,7 +256,7 @@ def main():
     # Correct the thread initialization by removing the parentheses
     ping_thread = threading.Thread(target=continuous_ping, args=(hosts, db_name))
     test_forward_secrecy_thread = threading.Thread(target=test_forward_secrecy, args=(hostname,))
-    hsts_thread = threading.Thread(target=check_hsts, args=(url,))
+    hsts_thread = threading.Thread(target=check_hsts, args=(urls,))
     mtbf_thread = threading.Thread(target=mtbf)
 
     # Start the threads
